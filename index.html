@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>保護者管理ダッシュボード</title>
+    <title>保護者管理ダッシュボード v1.0.0</title>
     <style>
         * { box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 900px; margin: 0 auto; padding: 15px; background-color: #1a1a2e; color: white; }
@@ -107,6 +107,8 @@
         const API_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
 
         let currentConfig = {};
+        let actionLockUntil = 0; // ボタン操作直後の同期上書きを防ぐガードタイマー
+
         const daysMap = [
             { code: 'Mon', name: '月曜日' }, { code: 'Tue', name: '火曜日' },
             { code: 'Wed', name: '水曜日' }, { code: 'Thu', name: '木曜日' },
@@ -186,16 +188,18 @@
             });
         }
 
-        // 状態（利用時間およびボタン表示トグル）を反映する関数
         function updateUIState(data) {
             if (!data) return;
             
-            // 1. 利用時間の更新
+            // 利用時間の更新
             const sec = data.used_seconds || 0;
             document.getElementById("used-seconds").innerText = sec % 60;
             document.getElementById("used-minutes").innerText = Math.floor(sec / 60);
 
-            // 2. ボタンのトグル表示制御
+            // 操作直後（5秒以内）はサーバーからの古い同期データによるボタンの巻き戻しを禁止するガード
+            if (Date.now() < actionLockUntil) return;
+
+            // ボタンのトグル表示制御
             const btnBlock = document.getElementById("btn-block");
             const btnAllow = document.getElementById("btn-allow");
             
@@ -215,11 +219,21 @@
             if (actionType === 'block') {
                 currentConfig.is_blocked = true;
                 currentConfig.manual_override = true;
+                // 即座にローカルのボタン表示を切り替え＆同期による巻き戻しを5秒間ガード
+                actionLockUntil = Date.now() + 5000;
+                document.getElementById("btn-block").style.display = "none";
+                document.getElementById("btn-allow").style.display = "block";
+
                 await updateCloudData(currentConfig);
                 alert('ブロック指示を送信しました');
             } else if (actionType === 'allow') {
                 currentConfig.is_blocked = false;
                 currentConfig.manual_override = true;
+                // 即座にローカルのボタン表示を切り替え＆同期による巻き戻しを5秒間ガード
+                actionLockUntil = Date.now() + 5000;
+                document.getElementById("btn-block").style.display = "block";
+                document.getElementById("btn-allow").style.display = "none";
+
                 await updateCloudData(currentConfig);
                 alert('ブロック解除指示を送信しました');
             } else if (actionType === 'shutdown') {
@@ -231,7 +245,6 @@
                 }
                 return;
             }
-            updateUIState(currentConfig);
         }
 
         async function saveScheduleConfig() {
@@ -256,7 +269,6 @@
         }
 
         function startSyncLoop() {
-            // 3秒ごとの安定通信サイクル
             setInterval(async () => {
                 const data = await fetchCloudData();
                 if (data) {
