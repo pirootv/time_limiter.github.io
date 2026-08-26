@@ -3,11 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>保護者管理ダッシュボード</title>
+    <title>ラズパイ管理ダッシュボード</title>
     <style>
         * { box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 900px; margin: 0 auto; padding: 15px; background-color: #1a1a2e; color: white; }
         
+        /* ヘッダー周りの重複・重なり修正 */
         .header-bar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid #0f3460; padding-bottom: 12px; }
         h1 { color: #00b4d8; font-size: 20px; margin: 0; word-break: break-all; }
         .logout-btn { background-color: #e94560; color: white; padding: 8px 16px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; white-space: nowrap; }
@@ -20,13 +21,13 @@
         .btn { padding: 14px 15px; font-size: 15px; cursor: pointer; border: none; border-radius: 8px; font-weight: bold; width: 100%; text-align: center; transition: 0.2s; }
         .btn-block { background-color: #e94560; color: white; }
         .btn-allow { background-color: #2ecc71; color: white; }
-        .btn-shutdown { background-color: #8e44ad; color: white; }
         .btn-apply { background-color: #00b4d8; color: white; font-size: 18px; padding: 16px; width: 100%; border-radius: 8px; margin-top: 15px; cursor: pointer; border: none; }
         
         input[type="text"], input[type="password"], input[type="number"], input[type="time"] { 
             padding: 10px; background-color: #0f3460; border: 1px solid #00b4d8; color: white; border-radius: 6px; font-size: 15px; outline: none; width: 100%; max-width: 100%;
         }
 
+        /* テーブルおよびスマホ用表示の飛び出し防止修正 */
         .responsive-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
         .responsive-table th, .responsive-table td { padding: 12px 8px; border: 1px solid #0f3460; text-align: center; font-size: 15px; }
         .responsive-table th { background-color: #0f3460; color: #90e0ef; }
@@ -47,6 +48,7 @@
 </head>
 <body>
 
+    <!-- ログイン画面 -->
     <div id="login-screen">
         <div class="login-card">
             <h1 style="margin-bottom: 20px;">保護者認証</h1>
@@ -56,6 +58,7 @@
         </div>
     </div>
 
+    <!-- メインダッシュボード -->
     <div id="main-screen" style="display: none;">
         <div class="header-bar">
             <h1>保護者管理ダッシュボード</h1>
@@ -72,9 +75,8 @@
         <div class="card">
             <h2>即時コントロール</h2>
             <div class="ctrl-grid">
-                <button id="btn-block" onclick="sendAction('block')" class="btn btn-block" style="display: none;">全画面ブロック</button>
-                <button id="btn-allow" onclick="sendAction('allow')" class="btn btn-allow" style="display: none;">ブロック解除</button>
-                <button onclick="sendAction('shutdown')" class="btn btn-shutdown">電源オフ (遠隔)</button>
+                <button onclick="sendAction('block')" class="btn btn-block">全画面ブロック</button>
+                <button onclick="sendAction('allow')" class="btn btn-allow">ブロック解除</button>
             </div>
         </div>
 
@@ -99,9 +101,7 @@
         const API_KEY = "$2a$10$cYHxQFVmqDI0vyGYEnYs4.UnliXoDQjli24.bTC0u0p3NZehV.uMG";
         const API_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
 
-        let currentConfig = null;
-        let actionLockUntil = 0;
-
+        let currentConfig = {};
         const daysMap = [
             { code: 'Mon', name: '月曜日' }, { code: 'Tue', name: '火曜日' },
             { code: 'Wed', name: '水曜日' }, { code: 'Thu', name: '木曜日' },
@@ -111,10 +111,7 @@
 
         async function fetchCloudData() {
             try {
-                const targetUrl = `${API_URL}/latest?_t=${Date.now()}`;
-                const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
-                
-                const res = await fetch(proxyUrl, {
+                const res = await fetch(`${API_URL}/latest`, {
                     headers: { "X-Master-Key": API_KEY }
                 });
                 if (!res.ok) return null;
@@ -128,10 +125,7 @@
 
         async function updateCloudData(newData) {
             try {
-                const targetUrl = `${API_URL}`;
-                const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
-
-                const res = await fetch(proxyUrl, {
+                await fetch(API_URL, {
                     method: "PUT",
                     headers: {
                         "Content-Type": "application/json",
@@ -139,38 +133,19 @@
                     },
                     body: JSON.stringify(newData)
                 });
-                if (res.ok) {
-                    const result = await res.json();
-                    if (result && result.record) {
-                        currentConfig = result.record;
-                        return true;
-                    }
-                    return true;
-                }
             } catch (e) {
                 console.error("Update Error:", e);
             }
-            return false;
         }
 
         async function checkLogin() {
             const pwd = document.getElementById("input-pass").value;
             const data = await fetchCloudData();
-            
-            if (!data) {
-                document.getElementById("login-error").innerText = "クラウドからデータを取得できませんでした";
-                document.getElementById("login-error").style.display = "block";
-                return;
-            }
-
-            currentConfig = data;
-            const validPassword = currentConfig.password || "0525";
-
-            if (pwd === validPassword) {
+            if (data && pwd === data.password) {
+                currentConfig = data;
                 sessionStorage.setItem("auth", "true");
                 showMainScreen();
             } else {
-                document.getElementById("login-error").innerText = "パスワードが違います";
                 document.getElementById("login-error").style.display = "block";
             }
         }
@@ -184,12 +159,10 @@
             document.getElementById("login-screen").style.display = "none";
             document.getElementById("main-screen").style.display = "block";
             renderForm();
-            updateUIState(currentConfig);
             startSyncLoop();
         }
 
         function renderForm() {
-            if (!currentConfig) return;
             document.getElementById("cfg-password").value = currentConfig.password || "0525";
             const tbody = document.getElementById("schedule-tbody");
             tbody.innerHTML = "";
@@ -199,78 +172,32 @@
                 const tr = document.createElement("tr");
                 tr.innerHTML = `
                     <td data-label="曜日"><strong>${d.name}</strong></td>
-                    <td data-label="最大利用(分)"><input type="number" id="max_${d.code}" value="${sched.max_minutes !== undefined ? sched.max_minutes : 0}" min="0"></td>
-                    <td data-label="不可（開始）"><input type="time" id="start_${d.code}" value="${sched.deny_start !== 'none' && sched.deny_start ? sched.deny_start : ''}"></td>
-                    <td data-label="不可（終了）"><input type="time" id="end_${d.code}" value="${sched.deny_end !== 'none' && sched.deny_end ? sched.deny_end : ''}"></td>
+                    <td data-label="最大利用(分)"><input type="number" id="max_${d.code}" value="${sched.max_minutes || 0}" min="0"></td>
+                    <td data-label="不可（開始）"><input type="time" id="start_${d.code}" value="${sched.deny_start || '21:00'}"></td>
+                    <td data-label="不可（終了）"><input type="time" id="end_${d.code}" value="${sched.deny_end || '09:00'}"></td>
                 `;
                 tbody.appendChild(tr);
             });
         }
 
-        function updateUIState(data) {
-            if (!data) return;
-            
-            const sec = data.used_seconds || 0;
-            document.getElementById("used-seconds").innerText = sec % 60;
-            document.getElementById("used-minutes").innerText = Math.floor(sec / 60);
-
-            if (Date.now() < actionLockUntil) return;
-
-            const btnBlock = document.getElementById("btn-block");
-            const btnAllow = document.getElementById("btn-allow");
-            
-            if (data.is_blocked) {
-                btnBlock.style.display = "none";
-                btnAllow.style.display = "block";
-            } else {
-                btnBlock.style.display = "block";
-                btnAllow.style.display = "none";
-            }
-        }
-
         async function sendAction(actionType) {
-            const latest = await fetchCloudData();
-            if (latest) currentConfig = latest;
-            if (!currentConfig) return;
+            const data = await fetchCloudData();
+            if (data) currentConfig = data;
             
-            actionLockUntil = Date.now() + 5000;
-
             if (actionType === 'block') {
                 currentConfig.is_blocked = true;
                 currentConfig.manual_override = true;
-                document.getElementById("btn-block").style.display = "none";
-                document.getElementById("btn-allow").style.display = "block";
-
-                await updateCloudData(currentConfig);
-                alert('ブロック指示を送信しました');
             } else if (actionType === 'allow') {
                 currentConfig.is_blocked = false;
                 currentConfig.manual_override = true;
-                document.getElementById("btn-block").style.display = "block";
-                document.getElementById("btn-allow").style.display = "none";
-
-                await updateCloudData(currentConfig);
-                alert('ブロック解除指示を送信しました');
-            } else if (actionType === 'shutdown') {
-                if (confirm('ラズパイを遠隔で電源オフ（シャットダウン）しますか？')) {
-                    currentConfig.is_shutdown = true;
-                    currentConfig.remote_action = "shutdown";
-                    await updateCloudData(currentConfig);
-                    alert('遠隔シャットダウン指示を送信しました');
-                }
-                return;
             }
+            await updateCloudData(currentConfig);
+            alert(actionType === 'block' ? 'ブロック指示を送信しました' : 'ブロック解除指示を送信しました');
         }
 
         async function saveScheduleConfig() {
-            const latest = await fetchCloudData();
-            if (latest) {
-                currentConfig = latest;
-            }
-            if (!currentConfig) {
-                alert("クラウドデータの取得に失敗したため保存できません。");
-                return;
-            }
+            const data = await fetchCloudData();
+            if (data) currentConfig = data;
 
             currentConfig.password = document.getElementById("cfg-password").value;
             currentConfig.manual_override = false;
@@ -278,33 +205,26 @@
             if (!currentConfig.schedules) currentConfig.schedules = {};
 
             daysMap.forEach(d => {
-                const maxVal = parseInt(document.getElementById(`max_${d.code}`).value) || 0;
-                const startVal = document.getElementById(`start_${d.code}`).value || "none";
-                const endVal = document.getElementById(`end_${d.code}`).value || "none";
-
                 currentConfig.schedules[d.code] = {
-                    max_minutes: maxVal,
-                    deny_start: startVal || "none",
-                    deny_end: endVal || "none"
+                    max_minutes: parseInt(document.getElementById(`max_${d.code}`).value) || 0,
+                    deny_start: document.getElementById(`start_${d.code}`).value || "",
+                    deny_end: document.getElementById(`end_${d.code}`).value || ""
                 };
             });
 
-            const success = await updateCloudData(currentConfig);
-            if (success) {
-                alert("設定を保存して適用しました！");
-            } else {
-                alert("保存に失敗しました。");
-            }
+            await updateCloudData(currentConfig);
+            alert("設定を保存して適用しました！");
         }
 
         function startSyncLoop() {
+            // 3秒ごとの安定通信サイクル
             setInterval(async () => {
-                if (Date.now() >= actionLockUntil) {
-                    const data = await fetchCloudData();
-                    if (data) {
-                        currentConfig = data;
-                        updateUIState(currentConfig);
-                    }
+                const data = await fetchCloudData();
+                if (data) {
+                    currentConfig = data;
+                    const sec = data.used_seconds || 0;
+                    document.getElementById("used-seconds").innerText = sec;
+                    document.getElementById("used-minutes").innerText = Math.floor(sec / 60);
                 }
             }, 3000);
         }
