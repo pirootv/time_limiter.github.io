@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ラズパイ管理ダッシュボード</title>
+    <title>保護者管理ダッシュボード</title>
     <style>
         * { box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 900px; margin: 0 auto; padding: 15px; background-color: #1a1a2e; color: white; }
@@ -99,12 +99,7 @@
         const API_KEY = "$2a$10$cYHxQFVmqDI0vyGYEnYs4.UnliXoDQjli24.bTC0u0p3NZehV.uMG";
         const API_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
 
-        let currentConfig = {
-            password: "0525",
-            used_seconds: 0,
-            is_blocked: false,
-            schedules: {}
-        };
+        let currentConfig = null;
         let actionLockUntil = 0;
 
         const daysMap = [
@@ -162,17 +157,20 @@
             const pwd = document.getElementById("input-pass").value;
             const data = await fetchCloudData();
             
-            // クラウドからデータが取れなくても、ローカルのデフォルトまたは入力されたパスワードで通す緊急バイパス
-            if (data && data.password) {
-                currentConfig = data;
+            if (!data) {
+                document.getElementById("login-error").innerText = "クラウドからデータを取得できませんでした";
+                document.getElementById("login-error").style.display = "block";
+                return;
             }
 
+            currentConfig = data;
             const validPassword = currentConfig.password || "0525";
 
-            if (pwd === validPassword || pwd === "0525") {
+            if (pwd === validPassword) {
                 sessionStorage.setItem("auth", "true");
                 showMainScreen();
             } else {
+                document.getElementById("login-error").innerText = "パスワードが違います";
                 document.getElementById("login-error").style.display = "block";
             }
         }
@@ -191,6 +189,7 @@
         }
 
         function renderForm() {
+            if (!currentConfig) return;
             document.getElementById("cfg-password").value = currentConfig.password || "0525";
             const tbody = document.getElementById("schedule-tbody");
             tbody.innerHTML = "";
@@ -232,6 +231,7 @@
         async function sendAction(actionType) {
             const latest = await fetchCloudData();
             if (latest) currentConfig = latest;
+            if (!currentConfig) return;
             
             actionLockUntil = Date.now() + 5000;
 
@@ -267,6 +267,10 @@
             if (latest) {
                 currentConfig = latest;
             }
+            if (!currentConfig) {
+                alert("クラウドデータの取得に失敗したため保存できません。");
+                return;
+            }
 
             currentConfig.password = document.getElementById("cfg-password").value;
             currentConfig.manual_override = false;
@@ -280,13 +284,17 @@
 
                 currentConfig.schedules[d.code] = {
                     max_minutes: maxVal,
-                    deny_start: startVal,
-                    deny_end: endVal
+                    deny_start: startVal || "none",
+                    deny_end: endVal || "none"
                 };
             });
 
             const success = await updateCloudData(currentConfig);
-            alert("設定を保存して適用しました！");
+            if (success) {
+                alert("設定を保存して適用しました！");
+            } else {
+                alert("保存に失敗しました。");
+            }
         }
 
         function startSyncLoop() {
@@ -304,8 +312,10 @@
         window.onload = () => {
             if (sessionStorage.getItem("auth") === "true") {
                 fetchCloudData().then(data => {
-                    if (data) currentConfig = data;
-                    showMainScreen();
+                    if (data) {
+                        currentConfig = data;
+                        showMainScreen();
+                    }
                 });
             }
         };
