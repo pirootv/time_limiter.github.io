@@ -3,12 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>保護者管理ダッシュボード v1.0.0</title>
+    <title>保護者管理ダッシュボード</title>
     <style>
         * { box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 900px; margin: 0 auto; padding: 15px; background-color: #1a1a2e; color: white; }
         
-        /* ヘッダー周りの重複・重なり修正 */
         .header-bar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid #0f3460; padding-bottom: 12px; }
         h1 { color: #00b4d8; font-size: 20px; margin: 0; word-break: break-all; }
         .logout-btn { background-color: #e94560; color: white; padding: 8px 16px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; white-space: nowrap; }
@@ -28,7 +27,6 @@
             padding: 10px; background-color: #0f3460; border: 1px solid #00b4d8; color: white; border-radius: 6px; font-size: 15px; outline: none; width: 100%; max-width: 100%;
         }
 
-        /* テーブルおよびスマホ用表示の飛び出し防止修正 */
         .responsive-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
         .responsive-table th, .responsive-table td { padding: 12px 8px; border: 1px solid #0f3460; text-align: center; font-size: 15px; }
         .responsive-table th { background-color: #0f3460; color: #90e0ef; }
@@ -76,11 +74,8 @@
         <div class="card">
             <h2>即時コントロール</h2>
             <div class="ctrl-grid">
-                <!-- トグル表示制御：ブロックされていない時のみ表示 -->
                 <button id="btn-block" onclick="sendAction('block')" class="btn btn-block" style="display: none;">全画面ブロック</button>
-                <!-- トグル表示制御：ブロックされている時のみ表示 -->
                 <button id="btn-allow" onclick="sendAction('allow')" class="btn btn-allow" style="display: none;">ブロック解除</button>
-                <!-- 遠隔シャットダウンボタン -->
                 <button onclick="sendAction('shutdown')" class="btn btn-shutdown">電源オフ (遠隔)</button>
             </div>
         </div>
@@ -107,7 +102,7 @@
         const API_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
 
         let currentConfig = {};
-        let actionLockUntil = 0; // ボタン操作直後の同期上書きを防ぐガードタイマー
+        let actionLockUntil = 0; // 操作直後の同期上書きを防ぐガード
 
         const daysMap = [
             { code: 'Mon', name: '月曜日' }, { code: 'Tue', name: '火曜日' },
@@ -119,7 +114,8 @@
         async function fetchCloudData() {
             try {
                 const res = await fetch(`${API_URL}/latest`, {
-                    headers: { "X-Master-Key": API_KEY }
+                    headers: { "X-Master-Key": API_KEY },
+                    cache: "no-store"
                 });
                 if (!res.ok) return null;
                 const data = await res.json();
@@ -132,7 +128,7 @@
 
         async function updateCloudData(newData) {
             try {
-                await fetch(API_URL, {
+                const res = await fetch(API_URL, {
                     method: "PUT",
                     headers: {
                         "Content-Type": "application/json",
@@ -140,6 +136,12 @@
                     },
                     body: JSON.stringify(newData)
                 });
+                if (res.ok) {
+                    const result = await res.json();
+                    if (result && result.record) {
+                        currentConfig = result.record;
+                    }
+                }
             } catch (e) {
                 console.error("Update Error:", e);
             }
@@ -181,8 +183,8 @@
                 tr.innerHTML = `
                     <td data-label="曜日"><strong>${d.name}</strong></td>
                     <td data-label="最大利用(分)"><input type="number" id="max_${d.code}" value="${sched.max_minutes || 0}" min="0"></td>
-                    <td data-label="不可（開始）"><input type="time" id="start_${d.code}" value="${sched.deny_start || '21:00'}"></td>
-                    <td data-label="不可（終了）"><input type="time" id="end_${d.code}" value="${sched.deny_end || '09:00'}"></td>
+                    <td data-label="不可（開始）"><input type="time" id="start_${d.code}" value="${sched.deny_start || ''}"></td>
+                    <td data-label="不可（終了）"><input type="time" id="end_${d.code}" value="${sched.deny_end || ''}"></td>
                 `;
                 tbody.appendChild(tr);
             });
@@ -191,15 +193,13 @@
         function updateUIState(data) {
             if (!data) return;
             
-            // 利用時間の更新
             const sec = data.used_seconds || 0;
             document.getElementById("used-seconds").innerText = sec % 60;
             document.getElementById("used-minutes").innerText = Math.floor(sec / 60);
 
-            // 操作直後（5秒以内）はサーバーからの古い同期データによるボタンの巻き戻しを禁止するガード
+            // 操作直後（5秒以内）はサーバーからの同期による書き戻しをガード
             if (Date.now() < actionLockUntil) return;
 
-            // ボタンのトグル表示制御
             const btnBlock = document.getElementById("btn-block");
             const btnAllow = document.getElementById("btn-allow");
             
@@ -213,14 +213,14 @@
         }
 
         async function sendAction(actionType) {
-            const data = await fetchCloudData();
-            if (data) currentConfig = data;
+            const latest = await fetchCloudData();
+            if (latest) currentConfig = latest;
             
+            actionLockUntil = Date.now() + 5000;
+
             if (actionType === 'block') {
                 currentConfig.is_blocked = true;
                 currentConfig.manual_override = true;
-                // 即座にローカルのボタン表示を切り替え＆同期による巻き戻しを5秒間ガード
-                actionLockUntil = Date.now() + 5000;
                 document.getElementById("btn-block").style.display = "none";
                 document.getElementById("btn-allow").style.display = "block";
 
@@ -229,8 +229,6 @@
             } else if (actionType === 'allow') {
                 currentConfig.is_blocked = false;
                 currentConfig.manual_override = true;
-                // 即座にローカルのボタン表示を切り替え＆同期による巻き戻しを5秒間ガード
-                actionLockUntil = Date.now() + 5000;
                 document.getElementById("btn-block").style.display = "block";
                 document.getElementById("btn-allow").style.display = "none";
 
@@ -248,11 +246,13 @@
         }
 
         async function saveScheduleConfig() {
-            const data = await fetchCloudData();
-            if (data) currentConfig = data;
+            const latest = await fetchCloudData();
+            if (latest) {
+                currentConfig = latest;
+            }
 
             currentConfig.password = document.getElementById("cfg-password").value;
-            currentConfig.manual_override = false;
+            currentConfig.manual_override = false; // スケジュール適用の際は手動オーバーライドを解除してスケジュールを優先
             
             if (!currentConfig.schedules) currentConfig.schedules = {};
 
@@ -269,13 +269,16 @@
         }
 
         function startSyncLoop() {
+            // 通信を最速（1秒周期：1000ms）に変更
             setInterval(async () => {
-                const data = await fetchCloudData();
-                if (data) {
-                    currentConfig = data;
-                    updateUIState(currentConfig);
+                if (Date.now() >= actionLockUntil) {
+                    const data = await fetchCloudData();
+                    if (data) {
+                        currentConfig = data;
+                        updateUIState(currentConfig);
+                    }
                 }
-            }, 3000);
+            }, 1000);
         }
 
         window.onload = () => {
