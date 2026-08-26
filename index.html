@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ラズパイ管理ダッシュボード</title>
+    <title>保護者管理ダッシュボード</title>
     <style>
         * { box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 900px; margin: 0 auto; padding: 15px; background-color: #1a1a2e; color: white; }
@@ -47,7 +47,6 @@
 </head>
 <body>
 
-    <!-- ログイン画面 -->
     <div id="login-screen">
         <div class="login-card">
             <h1 style="margin-bottom: 20px;">保護者認証</h1>
@@ -57,7 +56,6 @@
         </div>
     </div>
 
-    <!-- メインダッシュボード -->
     <div id="main-screen" style="display: none;">
         <div class="header-bar">
             <h1>保護者管理ダッシュボード</h1>
@@ -113,15 +111,14 @@
 
         async function fetchCloudData() {
             try {
-                // CORS制限を確実に回避するため直接叩く
-                const res = await fetch(`${API_URL}/latest`, {
-                    headers: { "X-Master-Key": API_KEY },
-                    cache: "no-store"
+                // corsproxy.io を使ってCORSを完全にバイパスする
+                const targetUrl = `${API_URL}/latest?_t=${Date.now()}`;
+                const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
+                
+                const res = await fetch(proxyUrl, {
+                    headers: { "X-Master-Key": API_KEY }
                 });
-                if (!res.ok) {
-                    console.error("API Error status:", res.status);
-                    return null;
-                }
+                if (!res.ok) return null;
                 const data = await res.json();
                 return data.record;
             } catch (e) {
@@ -132,7 +129,10 @@
 
         async function updateCloudData(newData) {
             try {
-                const res = await fetch(API_URL, {
+                const targetUrl = `${API_URL}`;
+                const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
+
+                const res = await fetch(proxyUrl, {
                     method: "PUT",
                     headers: {
                         "Content-Type": "application/json",
@@ -146,6 +146,7 @@
                         currentConfig = result.record;
                         return true;
                     }
+                    return true;
                 }
             } catch (e) {
                 console.error("Update Error:", e);
@@ -293,7 +294,7 @@
                         updateUIState(currentConfig);
                     }
                 }
-            }, 2000); // 負荷軽減のため2秒周期に変更
+            }, 3000); // 3秒おきに調整して429エラーを防ぐ
         }
 
         window.onload = () => {
