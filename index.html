@@ -140,11 +140,13 @@
                     const result = await res.json();
                     if (result && result.record) {
                         currentConfig = result.record;
+                        return true;
                     }
                 }
             } catch (e) {
                 console.error("Update Error:", e);
             }
+            return false;
         }
 
         async function checkLogin() {
@@ -182,9 +184,9 @@
                 const tr = document.createElement("tr");
                 tr.innerHTML = `
                     <td data-label="曜日"><strong>${d.name}</strong></td>
-                    <td data-label="最大利用(分)"><input type="number" id="max_${d.code}" value="${sched.max_minutes || 0}" min="0"></td>
-                    <td data-label="不可（開始）"><input type="time" id="start_${d.code}" value="${sched.deny_start || ''}"></td>
-                    <td data-label="不可（終了）"><input type="time" id="end_${d.code}" value="${sched.deny_end || ''}"></td>
+                    <td data-label="最大利用(分)"><input type="number" id="max_${d.code}" value="${sched.max_minutes !== undefined ? sched.max_minutes : 0}" min="0"></td>
+                    <td data-label="不可（開始）"><input type="time" id="start_${d.code}" value="${sched.deny_start !== 'none' && sched.deny_start ? sched.deny_start : ''}"></td>
+                    <td data-label="不可（終了）"><input type="time" id="end_${d.code}" value="${sched.deny_end !== 'none' && sched.deny_end ? sched.deny_end : ''}"></td>
                 `;
                 tbody.appendChild(tr);
             });
@@ -213,6 +215,7 @@
         }
 
         async function sendAction(actionType) {
+            // 必ず最新のJSONBinデータを取得してベースにする
             const latest = await fetchCloudData();
             if (latest) currentConfig = latest;
             
@@ -224,52 +227,66 @@
                 document.getElementById("btn-block").style.display = "none";
                 document.getElementById("btn-allow").style.display = "block";
 
-                await updateCloudData(currentConfig);
-                alert('ブロック指示を送信しました');
+                const success = await updateCloudData(currentConfig);
+                if (success) alert('ブロック指示を送信しました');
+                else alert('送信に失敗しました');
             } else if (actionType === 'allow') {
                 currentConfig.is_blocked = false;
                 currentConfig.manual_override = true;
                 document.getElementById("btn-block").style.display = "block";
                 document.getElementById("btn-allow").style.display = "none";
 
-                await updateCloudData(currentConfig);
-                alert('ブロック解除指示を送信しました');
+                const success = await updateCloudData(currentConfig);
+                if (success) alert('ブロック解除指示を送信しました');
+                else alert('送信に失敗しました');
             } else if (actionType === 'shutdown') {
                 if (confirm('ラズパイを遠隔で電源オフ（シャットダウン）しますか？')) {
                     currentConfig.is_shutdown = true;
                     currentConfig.remote_action = "shutdown";
-                    await updateCloudData(currentConfig);
-                    alert('遠隔シャットダウン指示を送信しました');
+                    const success = await updateCloudData(currentConfig);
+                    if (success) alert('遠隔シャットダウン指示を送信しました');
+                    else alert('送信に失敗しました');
                 }
                 return;
             }
         }
 
         async function saveScheduleConfig() {
+            // 1. 最新のJSONBinデータを取得してベースにする
             const latest = await fetchCloudData();
             if (latest) {
                 currentConfig = latest;
             }
 
+            // 2. パスワードとスケジュール設定を更新（manual_overrideは勝手にいじらない、またはスケジュール適用時は明示的にfalseにする）
             currentConfig.password = document.getElementById("cfg-password").value;
-            currentConfig.manual_override = false; // スケジュール適用の際は手動オーバーライドを解除してスケジュールを優先
+            currentConfig.manual_override = false; // 設定保存時はスケジュール優先に戻す
             
             if (!currentConfig.schedules) currentConfig.schedules = {};
 
             daysMap.forEach(d => {
+                const maxVal = parseInt(document.getElementById(`max_${d.code}`).value) || 0;
+                const startVal = document.getElementById(`start_${d.code}`).value || "none";
+                const endVal = document.getElementById(`end_${d.code}`).value || "none";
+
                 currentConfig.schedules[d.code] = {
-                    max_minutes: parseInt(document.getElementById(`max_${d.code}`).value) || 0,
-                    deny_start: document.getElementById(`start_${d.code}`).value || "",
-                    deny_end: document.getElementById(`end_${d.code}`).value || ""
+                    max_minutes: maxVal,
+                    deny_start: startVal,
+                    deny_end: endVal
                 };
             });
 
-            await updateCloudData(currentConfig);
-            alert("設定を保存して適用しました！");
+            // 3. JSONBinへ送信
+            const success = await updateCloudData(currentConfig);
+            if (success) {
+                alert("設定を保存して適用しました！");
+            } else {
+                alert("設定の保存に失敗しました。通信環境を確認してください。");
+            }
         }
 
         function startSyncLoop() {
-            // 通信を最速（1秒周期：1000ms）に変更
+            // 1秒周期で最新状態を同期
             setInterval(async () => {
                 if (Date.now() >= actionLockUntil) {
                     const data = await fetchCloudData();
