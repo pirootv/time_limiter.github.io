@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>保護者管理ダッシュボード</title>
+    <title>ラズパイ管理ダッシュボード</title>
     <style>
         * { box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 900px; margin: 0 auto; padding: 15px; background-color: #1a1a2e; color: white; }
@@ -102,7 +102,7 @@
         const API_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
 
         let currentConfig = {};
-        let actionLockUntil = 0; // 操作直後の同期上書きを防ぐガード
+        let actionLockUntil = 0;
 
         const daysMap = [
             { code: 'Mon', name: '月曜日' }, { code: 'Tue', name: '火曜日' },
@@ -113,11 +113,15 @@
 
         async function fetchCloudData() {
             try {
+                // CORS制限を確実に回避するため直接叩く
                 const res = await fetch(`${API_URL}/latest`, {
                     headers: { "X-Master-Key": API_KEY },
                     cache: "no-store"
                 });
-                if (!res.ok) return null;
+                if (!res.ok) {
+                    console.error("API Error status:", res.status);
+                    return null;
+                }
                 const data = await res.json();
                 return data.record;
             } catch (e) {
@@ -199,7 +203,6 @@
             document.getElementById("used-seconds").innerText = sec % 60;
             document.getElementById("used-minutes").innerText = Math.floor(sec / 60);
 
-            // 操作直後（5秒以内）はサーバーからの同期による書き戻しをガード
             if (Date.now() < actionLockUntil) return;
 
             const btnBlock = document.getElementById("btn-block");
@@ -215,7 +218,6 @@
         }
 
         async function sendAction(actionType) {
-            // 必ず最新のJSONBinデータを取得してベースにする
             const latest = await fetchCloudData();
             if (latest) currentConfig = latest;
             
@@ -252,15 +254,13 @@
         }
 
         async function saveScheduleConfig() {
-            // 1. 最新のJSONBinデータを取得してベースにする
             const latest = await fetchCloudData();
             if (latest) {
                 currentConfig = latest;
             }
 
-            // 2. パスワードとスケジュール設定を更新（manual_overrideは勝手にいじらない、またはスケジュール適用時は明示的にfalseにする）
             currentConfig.password = document.getElementById("cfg-password").value;
-            currentConfig.manual_override = false; // 設定保存時はスケジュール優先に戻す
+            currentConfig.manual_override = false;
             
             if (!currentConfig.schedules) currentConfig.schedules = {};
 
@@ -276,7 +276,6 @@
                 };
             });
 
-            // 3. JSONBinへ送信
             const success = await updateCloudData(currentConfig);
             if (success) {
                 alert("設定を保存して適用しました！");
@@ -286,7 +285,6 @@
         }
 
         function startSyncLoop() {
-            // 1秒周期で最新状態を同期
             setInterval(async () => {
                 if (Date.now() >= actionLockUntil) {
                     const data = await fetchCloudData();
@@ -295,7 +293,7 @@
                         updateUIState(currentConfig);
                     }
                 }
-            }, 1000);
+            }, 2000); // 負荷軽減のため2秒周期に変更
         }
 
         window.onload = () => {
