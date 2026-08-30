@@ -111,6 +111,8 @@
         const GIST_API_URL = `https://api.github.com/gists/${GIST_ID}`;
 
         let currentConfig = {};
+        let maxSeenSeconds = 0; // 巻き戻り防止用の変数
+
         const daysMap = [
             { code: 'Mon', name: '月曜日' }, { code: 'Tue', name: '火曜日' },
             { code: 'Wed', name: '水曜日' }, { code: 'Thu', name: '木曜日' },
@@ -144,7 +146,6 @@
             }
         }
 
-        // バックグラウンド専用の非同期送信（画面を待たせない）
         function updateCloudDataBackground(newData) {
             const token = getToken();
             if (!token) return;
@@ -173,10 +174,15 @@
                 return;
             }
 
+            const data = andCheckData(tokenToTest, pwdInput);
+        }
+
+        async function andCheckData(tokenToTest, pwdInput) {
             const data = await fetchCloudData(tokenToTest);
             if (data && pwdInput === (data.password || "0525")) {
                 localStorage.setItem("pirootv_gist_token", tokenToTest);
                 currentConfig = data;
+                if (data.used_seconds) maxSeenSeconds = data.used_seconds;
                 sessionStorage.setItem("auth", "true");
                 showMainScreen();
             } else {
@@ -194,7 +200,18 @@
             document.getElementById("main-screen").style.display = "block";
             renderForm();
             updateBlockButtonUI();
+            
+            // 初期表示の利用時間をセット
+            const initialSec = currentConfig.used_seconds || 0;
+            if (initialSec > maxSeenSeconds) maxSeenSeconds = initialSec;
+            updateUsageUI(maxSeenSeconds);
+
             startSyncLoop();
+        }
+
+        function updateUsageUI(sec) {
+            document.getElementById("used-seconds").innerText = sec;
+            document.getElementById("used-minutes").innerText = Math.floor(sec / 60);
         }
 
         function renderForm() {
@@ -227,16 +244,12 @@
             }
         }
 
-        // --- 超高速化：ボタンを押したら即座に画面を切り替えて裏で送信 ---
         function toggleBlockState() {
             const currentBlocked = currentConfig.is_blocked || false;
             currentConfig.manual_override = true;
             currentConfig.is_blocked = !currentBlocked;
 
-            // 画面の見た目を即座に更新
             updateBlockButtonUI();
-            
-            // 通信を待たずに即アラートを出して、送信は裏でやる
             alert(currentConfig.is_blocked ? 'ブロック指示を送信しました' : 'ブロック解除指示を送信しました');
             updateCloudDataBackground(currentConfig);
         }
@@ -267,7 +280,6 @@
                 };
             });
 
-            // 即座にアラートを出して、裏で保存
             alert("設定を保存して適用しました！");
             updateCloudDataBackground(currentConfig);
         }
@@ -277,12 +289,17 @@
                 const data = await fetchCloudData();
                 if (data) {
                     currentConfig = data;
-                    const sec = data.used_seconds || 0;
-                    document.getElementById("used-seconds").innerText = sec;
-                    document.getElementById("used-minutes").innerText = Math.floor(sec / 60);
+                    const fetchedSec = data.used_seconds || 0;
+                    
+                    // 📌 巻き戻り防止：Gistから古い（小さい）数字が返ってきても、今の最大値を維持する
+                    if (fetchedSec >= maxSeenSeconds) {
+                        maxSeenSeconds = fetchedSec;
+                    }
+                    
+                    updateUsageUI(maxSeenSeconds);
                     updateBlockButtonUI();
                 }
-            }, 5000); // 同期も5秒に調整
+            }, 5000);
         }
 
         window.onload = async () => {
@@ -295,6 +312,7 @@
                 const data = await fetchCloudData(savedToken);
                 if (data) {
                     currentConfig = data;
+                    if (data.used_seconds) maxSeenSeconds = data.used_seconds;
                     showMainScreen();
                 }
             }
