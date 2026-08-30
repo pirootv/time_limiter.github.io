@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" href="https://github.com/pirootv/time_limiter.github.io/blob/main/icon.png" type="image/png">
+    <link rel="icon" href="icon.png" type="image/png">
     <title>ラズパイ管理ウェブサイト</title>
     <style>
         * { box-sizing: border-box; }
@@ -96,9 +96,19 @@
     </div>
 
     <script>
-        const BIN_ID = "6a8ed91cda38895dfe130781";
-        const API_KEY = "$2a$10$cYHxQFVmqDI0vyGYEnYs4.UnliXoDQjli24.bTC0u0p3NZehV.uMG";
-        const API_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
+        // ==========================================
+        // GitHub Gist 設定
+        // ==========================================
+        const GIST_ID = "5c56ef1a0541a164158faef9d54d1b0d";
+        const GITHUB_TOKEN = "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";
+        const GIST_FILENAME = "config.json";
+        const GIST_API_URL = `https://api.github.com/gists/${GIST_ID}`;
+
+        const HEADERS = {
+            "Authorization": `token ${GITHUB_TOKEN}`,
+            "Accept": "application/vnd.github+json",
+            "Content-Type": "application/json"
+        };
 
         let currentConfig = {};
         const daysMap = [
@@ -110,12 +120,11 @@
 
         async function fetchCloudData() {
             try {
-                const res = await fetch(`${API_URL}/latest`, {
-                    headers: { "X-Master-Key": API_KEY }
-                });
+                const res = await fetch(GIST_API_URL, { headers: HEADERS, cache: 'no-store' });
                 if (!res.ok) return null;
                 const data = await res.json();
-                return data.record || data;
+                const content = data.files[GIST_FILENAME].content;
+                return JSON.parse(content);
             } catch (e) {
                 console.error("Fetch Error:", e);
                 return null;
@@ -124,13 +133,16 @@
 
         async function updateCloudData(newData) {
             try {
-                await fetch(API_URL, {
-                    method: "PUT",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "X-Master-Key": API_KEY
-                    },
-                    body: JSON.stringify(newData)
+                await fetch(GIST_API_URL, {
+                    method: "PATCH",
+                    headers: HEADERS,
+                    body: JSON.stringify({
+                        files: {
+                            [GIST_FILENAME]: {
+                                content: JSON.stringify(newData, null, 2)
+                            }
+                        }
+                    })
                 });
             } catch (e) {
                 console.error("Update Error:", e);
