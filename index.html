@@ -105,7 +105,7 @@
         </div>
     </div>
 
-    <script>
+<script>
         const GIST_ID = "5c56ef1a0541a164158faef9d54d1b0d";
         const GIST_FILENAME = "config.json";
         const GIST_API_URL = `https://api.github.com/gists/${GIST_ID}`;
@@ -144,31 +144,29 @@
             }
         }
 
-        async function updateCloudData(newData) {
+        // バックグラウンド専用の非同期送信（画面を待たせない）
+        function updateCloudDataBackground(newData) {
             const token = getToken();
             if (!token) return;
-            try {
-                await fetch(GIST_API_URL, {
-                    method: "PATCH",
-                    headers: getHeaders(token),
-                    body: JSON.stringify({
-                        files: {
-                            [GIST_FILENAME]: {
-                                content: JSON.stringify(newData, null, 2)
-                            }
+            fetch(GIST_API_URL, {
+                method: "PATCH",
+                headers: getHeaders(token),
+                body: JSON.stringify({
+                    files: {
+                        [GIST_FILENAME]: {
+                            content: JSON.stringify(newData, null, 2)
                         }
-                    })
-                });
-            } catch (e) {
-                console.error("Update Error:", e);
-            }
+                    }
+                })
+            }).catch(e => {
+                console.error("Background Update Error:", e);
+            });
         }
 
         async function checkLogin() {
             const tokenInput = document.getElementById("input-token").value.trim();
             const pwdInput = document.getElementById("input-pass").value;
             
-            // 入力があれば一時保存、なければlocalStorageから取得
             let tokenToTest = tokenInput || getToken();
             if (!tokenToTest) {
                 document.getElementById("login-error").style.display = "block";
@@ -229,35 +227,31 @@
             }
         }
 
-        async function toggleBlockState() {
-            const data = await fetchCloudData();
-            if (data) currentConfig = data;
-            
+        // --- 超高速化：ボタンを押したら即座に画面を切り替えて裏で送信 ---
+        function toggleBlockState() {
             const currentBlocked = currentConfig.is_blocked || false;
             currentConfig.manual_override = true;
             currentConfig.is_blocked = !currentBlocked;
 
-            await updateCloudData(currentConfig);
+            // 画面の見た目を即座に更新
             updateBlockButtonUI();
+            
+            // 通信を待たずに即アラートを出して、送信は裏でやる
             alert(currentConfig.is_blocked ? 'ブロック指示を送信しました' : 'ブロック解除指示を送信しました');
+            updateCloudDataBackground(currentConfig);
         }
 
-        async function remoteShutdown() {
+        function remoteShutdown() {
             if (!confirm("本当にラズパイをシャットダウンしますか？")) return;
-            const data = await fetchCloudData();
-            if (data) currentConfig = data;
 
             currentConfig.remote_action = "shutdown";
             currentConfig.is_shutdown = true;
 
-            await updateCloudData(currentConfig);
             alert("シャットダウン命令を送信しました");
+            updateCloudDataBackground(currentConfig);
         }
 
-        async function saveScheduleConfig() {
-            const data = await fetchCloudData();
-            if (data) currentConfig = data;
-
+        function saveScheduleConfig() {
             currentConfig.password = document.getElementById("cfg-password").value;
             currentConfig.manual_override = false;
             
@@ -273,8 +267,9 @@
                 };
             });
 
-            await updateCloudData(currentConfig);
+            // 即座にアラートを出して、裏で保存
             alert("設定を保存して適用しました！");
+            updateCloudDataBackground(currentConfig);
         }
 
         function startSyncLoop() {
@@ -287,11 +282,10 @@
                     document.getElementById("used-minutes").innerText = Math.floor(sec / 60);
                     updateBlockButtonUI();
                 }
-            }, 3000);
+            }, 5000); // 同期も5秒に調整
         }
 
         window.onload = async () => {
-            // すでにトークンが保存されている場合は、入力欄を隠すか自動ログインを試みることも可能
             const savedToken = getToken();
             if (savedToken) {
                 document.getElementById("input-token").value = "******** (保存済み)";
