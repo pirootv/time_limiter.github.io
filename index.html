@@ -75,8 +75,10 @@
         <div class="card">
             <h2>即時コントロール</h2>
             <div class="ctrl-grid">
-                <button onclick="sendAction('block')" class="btn btn-block">全画面ブロック</button>
-                <button onclick="sendAction('allow')" class="btn btn-allow">ブロック解除</button>
+                <!-- 状態に応じて動的に切り替わるブロック/解除ボタン -->
+                <button id="btn-toggle-block" onclick="toggleBlockState()" class="btn btn-block">全画面ブロック</button>
+                <!-- 遠隔シャットダウンボタン -->
+                <button onclick="remoteShutdown()" class="btn btn-block" style="background-color: #d97706;">ラズパイ電源オフ</button>
             </div>
         </div>
 
@@ -116,7 +118,7 @@
                 });
                 if (!res.ok) return null;
                 const data = await res.json();
-                return data.record;
+                return data.record || data;
             } catch (e) {
                 console.error("Fetch Error:", e);
                 return null;
@@ -141,7 +143,7 @@
         async function checkLogin() {
             const pwd = document.getElementById("input-pass").value;
             const data = await fetchCloudData();
-            if (data && pwd === data.password) {
+            if (data && pwd === (data.password || "0525")) {
                 currentConfig = data;
                 sessionStorage.setItem("auth", "true");
                 showMainScreen();
@@ -159,6 +161,7 @@
             document.getElementById("login-screen").style.display = "none";
             document.getElementById("main-screen").style.display = "block";
             renderForm();
+            updateBlockButtonUI();
             startSyncLoop();
         }
 
@@ -168,31 +171,53 @@
             tbody.innerHTML = "";
 
             daysMap.forEach(d => {
-                const sched = (currentConfig.schedules && currentConfig.schedules[d.code]) || {};
+                const sched = (currentConfig.schedules && (currentConfig.schedules[d.code] || currentConfig.schedules[d.code.toLowerCase()])) || {};
                 const tr = document.createElement("tr");
                 tr.innerHTML = `
                     <td data-label="曜日"><strong>${d.name}</strong></td>
                     <td data-label="最大利用(分)"><input type="number" id="max_${d.code}" value="${sched.max_minutes || 0}" min="0"></td>
-                    <td data-label="不可（開始）"><input type="time" id="start_${d.code}" value="${sched.deny_start || '21:00'}"></td>
-                    <td data-label="不可（終了）"><input type="time" id="end_${d.code}" value="${sched.deny_end || '09:00'}"></td>
+                    <td data-label="不可（開始）"><input type="time" id="start_${d.code}" value="${(sched.deny_start && sched.deny_start !== 'none') ? sched.deny_start : ''}"></td>
+                    <td data-label="不可（終了）"><input type="time" id="end_${d.code}" value="${(sched.deny_end && sched.deny_end !== 'none') ? sched.deny_end : ''}"></td>
                 `;
                 tbody.appendChild(tr);
             });
         }
 
-        async function sendAction(actionType) {
+        function updateBlockButtonUI() {
+            const isBlocked = currentConfig.is_blocked || false;
+            const btn = document.getElementById("btn-toggle-block");
+            if (isBlocked) {
+                btn.className = "btn btn-allow";
+                btn.innerText = "ブロック解除";
+            } else {
+                btn.className = "btn btn-block";
+                btn.innerText = "全画面ブロック";
+            }
+        }
+
+        async function toggleBlockState() {
             const data = await fetchCloudData();
             if (data) currentConfig = data;
             
-            if (actionType === 'block') {
-                currentConfig.is_blocked = true;
-                currentConfig.manual_override = true;
-            } else if (actionType === 'allow') {
-                currentConfig.is_blocked = false;
-                currentConfig.manual_override = true;
-            }
+            const currentBlocked = currentConfig.is_blocked || false;
+            currentConfig.manual_override = true;
+            currentConfig.is_blocked = !currentBlocked;
+
             await updateCloudData(currentConfig);
-            alert(actionType === 'block' ? 'ブロック指示を送信しました' : 'ブロック解除指示を送信しました');
+            updateBlockButtonUI();
+            alert(currentConfig.is_blocked ? 'ブロック指示を送信しました' : 'ブロック解除指示を送信しました');
+        }
+
+        async function remoteShutdown() {
+            if (!confirm("本当にラズパイをシャットダウンしますか？")) return;
+            const data = await fetchCloudData();
+            if (data) currentConfig = data;
+
+            currentConfig.remote_action = "shutdown";
+            currentConfig.is_shutdown = true;
+
+            await updateCloudData(currentConfig);
+            alert("シャットダウン命令を送信しました");
         }
 
         async function saveScheduleConfig() {
@@ -205,10 +230,12 @@
             if (!currentConfig.schedules) currentConfig.schedules = {};
 
             daysMap.forEach(d => {
+                const startVal = document.getElementById(`start_${d.code}`).value;
+                const endVal = document.getElementById(`end_${d.code}`).value;
                 currentConfig.schedules[d.code] = {
                     max_minutes: parseInt(document.getElementById(`max_${d.code}`).value) || 0,
-                    deny_start: document.getElementById(`start_${d.code}`).value || "",
-                    deny_end: document.getElementById(`end_${d.code}`).value || ""
+                    deny_start: startVal ? startVal : "none",
+                    deny_end: endVal ? endVal : "none"
                 };
             });
 
@@ -217,7 +244,6 @@
         }
 
         function startSyncLoop() {
-            // 3秒ごとの安定通信サイクル
             setInterval(async () => {
                 const data = await fetchCloudData();
                 if (data) {
@@ -225,6 +251,7 @@
                     const sec = data.used_seconds || 0;
                     document.getElementById("used-seconds").innerText = sec;
                     document.getElementById("used-minutes").innerText = Math.floor(sec / 60);
+                    updateBlockButtonUI();
                 }
             }, 3000);
         }
